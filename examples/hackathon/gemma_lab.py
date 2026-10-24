@@ -55,8 +55,18 @@ def make_arm(args):
         from rax.pick.sim import SimArm, Tube
         return SimArm([Tube(0.24, 0.10, 30, "green"), Tube(0.27, 0.02, 120, "blue"),
                        Tube(0.21, 0.05, 250, "red")])
+    import atexit
+
     from rax.robots.so101 import So101
-    return So101(args.port, handeye_file=args.handeye)
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    handeye = args.handeye or next(p for p in (os.path.join(here, "handeye_so101.json"),
+                                               os.path.join(here, "handeye_so101.example.json"))
+                                   if os.path.exists(p))
+    arm = So101(args.port, handeye_file=handeye)
+    print(f"connecting the SO-101 on {args.port} (hand-eye: {os.path.basename(handeye)}) ...")
+    arm.connect()
+    atexit.register(arm.disconnect)
+    return arm
 
 
 def main():
