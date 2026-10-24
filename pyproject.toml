@@ -29,7 +29,8 @@ dependencies = [
 # Open-vocabulary detection for PromptTarget ("cup", "screwdriver", ...).
 detect = ["ultralytics>=8.3"]
 # The real SO-101 + wrist OAK-D, and the tube-sorting server.
-robot = ["lerobot", "depthai>=2.24", "flask>=3.0", "requests>=2.31"]
+# lerobot[feetech] is the SO-101's servo SDK; rax.robots.oakd needs the depthai v3 API.
+robot = ["lerobot[feetech]", "depthai>=3.0", "flask>=3.0", "requests>=2.31"]
 # Optional faster IK backend near singularities (no Windows wheels).
 kinematics = ["placo>=0.9"]
 dev = ["pytest>=8.0", "ruff>=0.6"]

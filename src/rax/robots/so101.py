@@ -50,7 +50,10 @@ class So101(WristCameraArm):
         self.cam = None
 
     def _connect(self) -> None:
-        from lerobot.cameras.oakd.configuration_oakd import OAKDCameraConfig
+        try:                                     # the RAX LeRobot fork ships the OAK-D
+            from lerobot.cameras.oakd.configuration_oakd import OAKDCameraConfig
+        except ImportError:                      # stock LeRobot does not: use rax's copy
+            from rax.robots.oakd import OAKDCameraConfig
         from lerobot.motors.feetech.feetech import FeetechMotorsBus
         from lerobot.robots.so_follower import SO101FollowerConfig
         from lerobot.robots.utils import make_robot_from_config

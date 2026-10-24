@@ -104,9 +104,10 @@ class LiteRtGemma:
             import litert_lm as lm
             lm.set_min_log_severity(lm.LogSeverity.ERROR)
             be = {"cpu": lm.Backend.CPU, "gpu": lm.Backend.GPU, "npu": lm.Backend.NPU}[self.backend]()
+            cache = os.path.expanduser("~/.cache/litert-lm")
+            os.makedirs(cache, exist_ok=True)      # a fresh Pi has none, and the engine won't make it
             self._engine = lm.Engine(self.model_path, backend=be, vision_backend=lm.Backend.CPU(),
-                                     max_num_images=1,
-                                     cache_dir=os.path.expanduser("~/.cache/litert-lm"))
+                                     max_num_images=1, cache_dir=cache)
         return self._engine
 
     def warm(self) -> float:

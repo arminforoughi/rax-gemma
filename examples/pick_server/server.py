@@ -97,6 +97,10 @@ class PickApp(App):
                         t_log = time.time()
                         self.say(f"detector: '{self.target.prompt}' {time.time() - t0:.2f}s, "
                                  f"{len(self.dets)} in view")
+                except ModuleNotFoundError as e:
+                    # A Pi has no YOLO-World; Gemma and colour picks still work without it.
+                    self.say(f"detector off: {e} (pip install \"rax[detect]\")")
+                    return
                 except Exception as e:
                     self.say(f"detector: {type(e).__name__}: {e}")
                     print(traceback.format_exc(), flush=True)
