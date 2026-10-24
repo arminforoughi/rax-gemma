@@ -117,6 +117,11 @@ def plan(gemma, request: str, items: list[Item], places: list[str], bgr=None,
         "question, or why you cannot.",
         images=[bgr] if bgr is not None else (), schema=plan_schema(places), system=SYSTEM)
     p = Plan(say=_clean(out.get("say", "")))
+    if not asks_to_move(request):
+        # small models plan moves for "hello" or "what do you see?"; the arm must not move
+        p.dropped += [f"{_clean(s.get('object', ''))} -> {_clean(s.get('to', ''))} "
+                      "(the request asks for no move)" for s in out.get("steps", [])]
+        return p
     names = [i.name for i in items]
     for s in out.get("steps", []):
         obj, to = _clean(s.get("object", "")), _clean(s.get("to", ""))
@@ -147,6 +152,27 @@ def check(gemma, bgr, question: str) -> Verdict:
     out = gemma.ask(f"{question} Answer yes or no, and say why in a few words.",
                     images=[bgr], schema=CHECK_SCHEMA, system=SYSTEM)
     return Verdict(bool(out.get("yes")), _clean(out.get("why", "")))
+
+
+#: Words that ask the arm to do something, even inside a question ("can you put ...?").
+MOVE_WORDS = ("put", "move", "place", "pick", "take", "bring", "give", "hand", "sort",
+              "drop", "stack", "grab", "carry", "clear", "tidy", "swap", "load", "unload",
+              "return", "transfer", "lift", "fetch", "get")
+#: First words of a question or of small talk.
+CHAT_WORDS = ("what", "where", "which", "who", "why", "how", "is", "are", "am", "was",
+              "were", "do", "does", "did", "can", "could", "would", "will", "should",
+              "hello", "hi", "hey", "thanks", "thank", "ok", "okay", "yes", "no", "good",
+              "nice", "cool", "great")
+
+
+def asks_to_move(request: str) -> bool:
+    """False for a question or small talk ("what do you see?", "hello") that names no
+    action; True otherwise, terse commands included ("red left"). Small models plan
+    moves for anything, so the plan for a False request is dropped."""
+    words = re.findall(r"[a-z]+", request.lower())
+    if any(w in MOVE_WORDS for w in words):
+        return True
+    return not (request.strip().endswith("?") or (words and words[0] in CHAT_WORDS))
 
 
 def _clean(s) -> str:

@@ -93,13 +93,26 @@ can check what Gemma sees on the Pi before the arm moves.
 The RAX UI with its Gemma chat page, served by the Pi:
 
 ```bash
-RAX_GEMMA_BACKEND=litert RAX_GEMMA_DETECTOR=colour \
-    python examples/server.py --arm so101 --port /dev/ttyACM0 --no-tubes
+pip install ultralytics --extra-index-url https://download.pytorch.org/whl/cpu   # YOLO-World
+RAX_GEMMA_BACKEND=litert RAX_GEMMA_VISION=0 RAX_GEMMA_DETECTOR=prompt \
+    python examples/server.py --arm so101 --no-tubes \
+    --port /dev/serial/by-id/usb-1a86_USB_Single_Serial_<serial>-if00
 ```
 
-Open `http://<pi>:8484/ui/chat.html` (`/chat` itself is the page's JSON endpoint). A question ("what do you see?") only looks; a request
-("put the red tube in the left rack") moves the arm. The pick page's live YOLO-World
-overlay is off on the Pi (no `rax[detect]`); it says so once and the rest works.
+Open `http://<pi>:8484/ui/chat.html` (`/chat` itself is the page's JSON endpoint).
+
+- `RAX_GEMMA_VISION=0`: Gemma answers text-only. YOLO-World, prompted with the pick
+  page's query ("red cube, green cube"), says what is on the table, so set the query to
+  what you have. Looking at the picture is most of E2B's time on a Pi.
+- `RAX_GEMMA_DETECTOR=prompt`: picks find their object with YOLO-World (about 2 s a
+  frame on a Pi 5; the tracker holds it in between). Without ultralytics, the colour a
+  label names is used instead.
+- Use the `/dev/serial/by-id/` path: `/dev/ttyACM0` becomes `ttyACM1` when the arm is
+  replugged.
+
+A question or small talk ("what do you see?", "hello") never moves the arm, whatever
+Gemma plans; E2B text-only plans moves for both. A request ("put the red cube in the
+left rack", "red left") does.
 
 ## What changes from the laptop
 

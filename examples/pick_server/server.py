@@ -8,7 +8,9 @@ pick is :func:`rax.pick.pick`, the same on every arm.
 looks, plans pick-and-place steps onto the named places, and checks each one. Set
 RAX_GEMMA_BACKEND=litert on a Pi, RAX_GEMMA (model tag or .litertlm path),
 RAX_PLACES (JSON {"left rack": [x, y, release_z], ...}, metres), RAX_GEMMA_DETECTOR
-(colour or prompt) and RAX_GEMMA_HINT (what is on the table).
+(colour or prompt) and RAX_GEMMA_HINT (what is on the table). RAX_GEMMA_VISION=0 uses
+Gemma text-only: the query's detector says what is on the table and Gemma only talks
+and plans, which is far faster on a Pi (text-only models, Gemma 3 1B, are always so).
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ from rax.perception.handeye import calibrate  # noqa: E402
 from rax.pick import SIDE, TOP, PromptTarget, StickyTarget, pick, place, scan  # noqa: E402
 from rax.pick.arm import pitch_of, steepest  # noqa: E402
 from rax.pick.episodes import EpisodeLog  # noqa: E402
-from rax.gemma import Place, execute, look, open_gemma, plan, run_request, see  # noqa: E402
+from rax.gemma import Place, execute, open_gemma, plan, run_request, see  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 UI = os.path.join(HERE, "ui")
@@ -204,6 +206,10 @@ class PickApp(App):
             g = open_gemma(backend, os.environ.get("RAX_GEMMA"))
             if not g.ready():
                 raise RuntimeError(g.why_not_ready())
+            # RAX_GEMMA_VISION=0: a vision Gemma used text-only, for a fast chat on a Pi;
+            # the detector then does the seeing (set before warm(): LiteRT loads by it)
+            if os.environ.get("RAX_GEMMA_VISION", "").lower() in ("0", "false", "no"):
+                g.vision = False
             self.say(f"gemma: loading {g.model} ({backend}) ...")
             self.say(f"gemma: ready in {g.warm():.0f}s")
             self.gemma = g
@@ -218,7 +224,8 @@ class PickApp(App):
         self.phase("GEMMA", f"'{text}'")
         rep = run_request(self.arm, self.brain(), text, self.places,
                           detector=os.environ.get("RAX_GEMMA_DETECTOR", "colour"),
-                          say=self.gemma_say, hint=os.environ.get("RAX_GEMMA_HINT", ""))
+                          say=self.gemma_say, hint=os.environ.get("RAX_GEMMA_HINT", ""),
+                          target=self.target)
         for o in rep.outcomes:
             self.record(o.step.object, o.ok, "placed" if o.ok else "failed",
                         f"-> {o.step.to}: {o.detail}")
@@ -242,9 +249,10 @@ class PickApp(App):
             history = "\n".join(f"{m['who']}: {m['text']}" for m in self.chat[-9:-1]
                                 if m["who"] in ("you", "gemma"))
         self.phase("CHAT", "looking (the arm stays still)")
-        items = see(g, self.arm.frame(), detector, hint)
+        # a text-only Gemma gets the pick page's detector (the query) as its eyes
+        items = see(g, self.arm.frame(), detector, hint, target=self.target)
         self.say(f"gemma sees: {', '.join(i.name for i in items) or 'nothing'} "
-                 f"({g.last_s:.0f}s)")
+                 + (f"({g.last_s:.0f}s)" if g.vision else f"(detector: '{self.target.prompt}')"))
         self.phase("CHAT", "thinking")
         p = plan(g, text, items, [pl.name for pl in self.places], history=history)
         self.post("gemma", p.say or "Sorry, I have no answer to that.")
@@ -458,11 +466,13 @@ class PickApp(App):
             """What Gemma sees in the wrist camera now. Moves nothing."""
             def job():
                 self.phase("GEMMA", "looking (the arm stays still)")
-                bgr = arm.frame()
-                items = look(self.brain(), bgr, os.environ.get("RAX_GEMMA_HINT", ""))
+                bgr, g = arm.frame(), self.brain()
+                items = see(g, bgr, "prompt", os.environ.get("RAX_GEMMA_HINT", ""),
+                            target=self.target)
                 self.gemma_say("I see " + (", ".join(f"{i.name} ({i.where})" for i in items)
                                            or "nothing I could pick up"))
-                self.phase("IDLE", f"gemma looked in {self.gemma.last_s:.0f}s")
+                self.phase("IDLE", f"gemma looked in {g.last_s:.0f}s" if g.vision else
+                           f"the detector looked for '{self.target.prompt}'")
             return self.start_job(job)
 
         @app.route("/calibrate", methods=["POST"])

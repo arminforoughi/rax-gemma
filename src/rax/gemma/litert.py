@@ -27,9 +27,11 @@ import time
 import cv2
 import numpy as np
 
-from .client import GemmaError
+from .client import GemmaError, is_vision_model
 
 E2B_REPO, E2B_FILE = "litert-community/gemma-4-E2B-it-litert-lm", "gemma-4-E2B-it.litertlm"
+#: Gemma 3 1B: text only, for a fast chat while RAX's detector does the seeing.
+SMALL_REPO, SMALL_FILE = "litert-community/Gemma3-1B-IT", "gemma3-1b-it-int4.litertlm"
 
 
 def jpeg_bytes(bgr: np.ndarray, max_side: int = 512, quality: int = 85) -> bytes:
@@ -74,9 +76,13 @@ class LiteRtGemma:
 
     def __init__(self, model_path: str = f"~/models/{E2B_FILE}", backend: str = "cpu",
                  temperature: float = 0.0, max_output_tokens: int = 384,
-                 max_side: int = 512, constrain: bool = True, log=None):
+                 max_side: int = 512, constrain: bool = True, vision: bool | None = None,
+                 log=None):
         self.model_path = os.path.expanduser(model_path)
         self.model = os.path.basename(self.model_path)
+        #: False for the text-only Gemma 3 270M and 1B: then RAX's detector does the
+        #: seeing and Gemma only talks and plans. None: tell from the file name.
+        self.vision = is_vision_model(self.model) if vision is None else vision
         self.backend, self.temperature = backend, temperature
         self.max_output_tokens, self.max_side, self.constrain = max_output_tokens, max_side, constrain
         self.log = log or (lambda msg: None)
@@ -106,8 +112,8 @@ class LiteRtGemma:
             be = {"cpu": lm.Backend.CPU, "gpu": lm.Backend.GPU, "npu": lm.Backend.NPU}[self.backend]()
             cache = os.path.expanduser("~/.cache/litert-lm")
             os.makedirs(cache, exist_ok=True)      # a fresh Pi has none, and the engine won't make it
-            self._engine = lm.Engine(self.model_path, backend=be, vision_backend=lm.Backend.CPU(),
-                                     max_num_images=1, cache_dir=cache)
+            img_kw = dict(vision_backend=lm.Backend.CPU(), max_num_images=1) if self.vision else {}
+            self._engine = lm.Engine(self.model_path, backend=be, cache_dir=cache, **img_kw)
         return self._engine
 
     def warm(self) -> float:
@@ -124,6 +130,8 @@ class LiteRtGemma:
     def ask(self, prompt: str, images=(), schema: dict | None = None,
             system: str | None = None):
         """Gemma's answer: a dict when ``schema`` is given, else the text."""
+        if images and not self.vision:
+            raise GemmaError(f"{self.model} is text-only: it cannot look at a picture")
         import litert_lm as lm
         engine = self._load()
         if schema is not None and not self.constrain:

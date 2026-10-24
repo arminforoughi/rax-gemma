@@ -85,6 +85,46 @@ def test_a_request_runs_on_the_simulator():
                if t.colour == "green")
 
 
+def test_a_text_only_gemma_plans_from_what_the_detector_sees():
+    """Gemma 3 1B cannot look: the detector lists the table, Gemma only plans, no checks."""
+    class TextOnly(FakeGemma):
+        vision = False
+
+        def ask(self, prompt, images=(), schema=None, system=None):
+            assert not images and schema not in (LOOK_SCHEMA, CHECK_SCHEMA)
+            return super().ask(prompt, images, schema, system)
+
+    g = TextOnly(steps=[("green", "left rack")])
+    rep = run_request(_sim(), g, "green left", SIM_PLACES, detector="colour",
+                      target=ColourTarget(colours=("green", "blue")), say=lambda m: None)
+    assert {i.name for i in rep.seen} == {"green", "blue"}
+    assert "- green (" in g.prompts[0]            # the plan was asked with the detector's list
+    assert [o.ok for o in rep.outcomes] == [True], [o.detail for o in rep.outcomes]
+    assert "placed (jaws" in rep.outcomes[0].detail   # placed, and not checked
+
+
+def test_a_question_or_hello_never_moves_the_arm():
+    """Gemma 4 E2B text-only planned moves for both of these on the Pi."""
+    from rax.gemma.brain import asks_to_move
+    for q in ("what do you see?", "hello, how are you", "is the red tube in the rack",
+              "can you see the blue tube?", "thanks"):
+        assert not asks_to_move(q), q
+        p = plan(FakeGemma(steps=[("red tube", "left rack")], say="hi"), q,
+                 [Item("red tube")], PLACES)
+        assert not p.steps and p.say == "hi" and p.dropped, q
+    for r in ("put the red tube in the left rack", "red left", "can you move it right?",
+              "sort the tubes"):
+        assert asks_to_move(r), r
+
+
+def test_text_only_models_are_told_by_name():
+    from rax.gemma.client import is_vision_model
+    for name in ("gemma3-1b-it-int4.litertlm", "gemma3-270m-it-q8.litertlm", "gemma3:1b"):
+        assert not is_vision_model(name), name
+    for name in ("gemma-4-E2B-it.litertlm", "gemma4:e4b", "gemma3:12b"):
+        assert is_vision_model(name), name
+
+
 def test_a_failed_check_retries_then_reports():
     g = FakeGemma(objects=["green tube"], steps=[("green tube", "left rack")],
                   checks=(False,))

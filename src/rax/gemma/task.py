@@ -78,14 +78,18 @@ def target_for(name: str, detector: str = "prompt", grasp_z: float = 0.02):
 
 def run_request(arm, gemma, request: str, places: list[Place], detector: str = "prompt",
                 grasp: Grasp = TOP, verify: bool = True, retries: int = 1, scan_kw=None,
-                say=print, plan_only: bool = False, hint: str = "") -> Report:
-    """Look, plan, then pick and place each step. Returns what happened."""
+                say=print, plan_only: bool = False, hint: str = "", target=None,
+                prompt: str = "") -> Report:
+    """Look, plan, then pick and place each step. Returns what happened.
+
+    ``target`` / ``prompt``: what finds the objects when Gemma is text-only (see :func:`see`).
+    """
     rep = Report(request)
     arm.move(np.array(arm.home, float), speed=1.4, settle=0.3)
     bgr = _frame(arm)
 
     arm.phase("LOOK", "asking Gemma what is on the table")
-    rep.seen = see(gemma, bgr, detector, hint)
+    rep.seen = see(gemma, bgr, detector, hint, target, prompt)
     say(f"I see: {', '.join(i.name for i in rep.seen) or 'nothing'}  ({gemma.last_s:.1f}s)")
 
     arm.phase("PLAN", f"asking Gemma how to: {request}")
@@ -102,8 +106,18 @@ def run_request(arm, gemma, request: str, places: list[Place], detector: str = "
     return rep
 
 
-def see(gemma, bgr, detector: str = "prompt", hint: str = "") -> list[Item]:
-    """What Gemma sees in ``bgr``; with the colour detector, what the cap finder sees too."""
+def see(gemma, bgr, detector: str = "prompt", hint: str = "", target=None,
+        prompt: str = "") -> list[Item]:
+    """What Gemma sees in ``bgr``; with the colour detector, what the cap finder sees too.
+
+    A text-only Gemma (``gemma.vision`` False) cannot look, so RAX's detector does:
+    ``target`` if given (share the one already loaded), else one for ``prompt``.
+    """
+    if not getattr(gemma, "vision", True):
+        if target is None:
+            target = (target_for(prompt, detector) if prompt else
+                      ColourTarget(colours=("green", "blue", "red")))
+        return detected(target.detect(bgr), bgr.shape[1])
     seen = look(gemma, bgr, hint)
     if detector == "colour":
         names = {i.name.lower() for i in seen}
@@ -115,10 +129,21 @@ def see(gemma, bgr, detector: str = "prompt", hint: str = "") -> list[Item]:
     return seen
 
 
+def detected(dets, width: int) -> list[Item]:
+    """The detector's finds as Gemma's list, each placed left, centre or right."""
+    def where(u):
+        return "left" if u < width / 3 else "right" if u > 2 * width / 3 else "centre"
+    return [Item(d.label, "", where(d.u)) for d in dets]
+
+
 def execute(arm, gemma, steps: list[Step], places: list[Place], detector: str = "prompt",
             grasp: Grasp = TOP, verify: bool = True, retries: int = 1, scan_kw=None,
             say=print, hint: str = "") -> list[Outcome]:
-    """Carry out ``steps``, then fold home. One Outcome per step."""
+    """Carry out ``steps``, then fold home. One Outcome per step.
+
+    A text-only Gemma cannot check a place from the camera, so then nothing is checked.
+    """
+    verify = verify and getattr(gemma, "vision", True)
     by_name, outcomes = {p.name: p for p in places}, []
     for s in steps:
         arm.checkpoint()

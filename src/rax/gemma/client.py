@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import ipaddress
 import json
+import re
 import socket
 import time
 import urllib.error
@@ -26,6 +27,11 @@ import numpy as np
 
 class GemmaError(RuntimeError):
     pass
+
+
+def is_vision_model(name: str) -> bool:
+    """False for Gemma 3 270M and 1B (a file name or an Ollama tag), which take text only."""
+    return not re.search(r"270m|(^|[-_:])1b([-_.:]|$)", name.lower())
 
 
 def is_local(host_url: str) -> bool:
@@ -62,6 +68,7 @@ class Gemma:
         if not is_local(host):
             raise GemmaError(f"{host} is not on this machine or the local network")
         self.model, self.host, self.timeout = model, host.rstrip("/"), timeout
+        self.vision = is_vision_model(model)   # gemma3:1b / gemma3:270m cannot look
         self.temperature = temperature
         self.log = log or (lambda msg: None)
         self.last_s = 0.0                 # how long the last answer took
