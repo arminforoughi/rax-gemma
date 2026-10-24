@@ -64,16 +64,19 @@ def target_for(name: str, detector: str = "prompt", grasp_z: float = 0.02):
     """A detector for the object Gemma named.
 
     ``"prompt"``: YOLO-World with the name as its prompt (and the colour blob when the
-    name has a colour and YOLO misses it). ``"colour"``: only the colour in the name,
-    no model at all; it is what the simulator draws and the fallback when the room's
-    light confuses YOLO.
+    name has a colour and YOLO misses it). ``"fast"``: the colour blob first when the
+    name has a colour, YOLO-World only when it has none or the blob is not there (a
+    Pi, where YOLO-World takes seconds a frame). ``"colour"``: only the colour in the
+    name, no model at all; it is what the simulator draws and the fallback when the
+    room's light confuses YOLO.
     """
     if detector == "colour":
         cols = tuple(colour_names(name))
         if not cols:
             raise RuntimeError(f"'{name}' names no colour for the colour detector")
         return ColourTarget(name=name, colours=cols, grasp_z=grasp_z)
-    return StickyTarget(PromptTarget(name=name, prompt=name, grasp_z=grasp_z))
+    return StickyTarget(PromptTarget(name=name, prompt=name, grasp_z=grasp_z,
+                                     colour_first=detector == "fast"))
 
 
 def run_request(arm, gemma, request: str, places: list[Place], detector: str = "prompt",

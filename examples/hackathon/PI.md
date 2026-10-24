@@ -94,7 +94,7 @@ The RAX UI with its Gemma chat page, served by the Pi:
 
 ```bash
 pip install ultralytics --extra-index-url https://download.pytorch.org/whl/cpu   # YOLO-World
-RAX_GEMMA_BACKEND=litert RAX_GEMMA_VISION=0 RAX_GEMMA_DETECTOR=prompt \
+RAX_GEMMA_BACKEND=litert RAX_GEMMA_VISION=0 RAX_GEMMA_DETECTOR=fast \
     python examples/server.py --arm so101 --no-tubes \
     --port /dev/serial/by-id/usb-1a86_USB_Single_Serial_<serial>-if00
 ```
@@ -104,9 +104,11 @@ Open `http://<pi>:8484/ui/chat.html` (`/chat` itself is the page's JSON endpoint
 - `RAX_GEMMA_VISION=0`: Gemma answers text-only. YOLO-World, prompted with the pick
   page's query ("red cube, green cube"), says what is on the table, so set the query to
   what you have. Looking at the picture is most of E2B's time on a Pi.
-- `RAX_GEMMA_DETECTOR=prompt`: picks find their object with YOLO-World (about 2 s a
-  frame on a Pi 5; the tracker holds it in between). Without ultralytics, the colour a
-  label names is used instead.
+- `RAX_GEMMA_DETECTOR=fast`: a label that names a colour ("red cube") is found by that
+  colour (~10 ms a frame, the box is the blob); YOLO-World only finds the labels that
+  name none ("cup"). YOLO-World takes ~2 s a frame on a Pi 5 and the visual servo asks
+  every step, so with `prompt` (YOLO-World for everything) a pick crawls and its box
+  trails the object. While a pick runs, the live view stops asking YOLO-World.
 - Use the `/dev/serial/by-id/` path: `/dev/ttyACM0` becomes `ttyACM1` when the arm is
   replugged.
 

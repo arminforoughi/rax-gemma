@@ -182,3 +182,30 @@ def test_colour_blob_finds_a_coloured_block_the_detector_missed():
     assert colour_blob(img, "green cube")[0] >= 195
     assert colour_blob(img, "blue cube") is None                 # nothing blue there
     assert colour_blob(img, "cup") is None                       # no colour: no fallback
+
+
+def test_colour_first_skips_yolo_when_every_colour_is_found():
+    """On a Pi YOLO-World takes ~2 s a frame; a named colour is found without it."""
+    from rax.pick.targets import PromptTarget
+
+    class Yolo:                                   # stands in for YOLO-World; counts calls
+        calls = 0
+
+        def predict(self, bgr, **kw):
+            Yolo.calls += 1
+            return []
+
+    img = np.full((240, 320, 3), (150, 170, 190), np.uint8)
+    cv2.rectangle(img, (40, 60), (110, 130), (40, 40, 200), -1)  # red block
+    t = PromptTarget(prompt="red cube", colour_first=True, _detector=Yolo())
+    d, = t.detect(img)
+    assert d.label == "red cube" and d.source == "colour" and Yolo.calls == 0 and t.cheap()
+    t = PromptTarget(prompt="red cube, cup", colour_first=True, _detector=Yolo())
+    assert {d.label for d in t.detect(img)} == {"red cube"} and Yolo.calls == 1
+    assert not t.cheap()                          # "cup" names no colour: YOLO-World it is
+    t = PromptTarget(prompt="red cube, blue cube", colour_first=True, _detector=Yolo())
+    assert {d.label for d in t.detect(img)} == {"red cube"}
+    assert Yolo.calls == 1                        # blue is not there: still no YOLO-World
+    t = PromptTarget(prompt="red cube", _detector=Yolo())
+    t.detect(img)
+    assert Yolo.calls == 2 and not t.cheap()      # without colour_first: YOLO-World first

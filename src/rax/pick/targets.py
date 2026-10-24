@@ -235,14 +235,48 @@ class PromptTarget(Target):
     colour_fallback: bool = True
     #: True once YOLO-World turned out not to be installed (a Pi): colour labels only.
     colour_only: bool = False
+    #: Find a label that names a colour by its colour before asking YOLO-World, and
+    #: skip YOLO when every label was found so. On a Pi YOLO-World takes ~2 s a frame,
+    #: which the visual servo waits on every step; the colour takes ~10 ms, and its box
+    #: is the blob itself. YOLO-World still finds the labels that name no colour.
+    colour_first: bool = False
     _detector: object = field(default=None, repr=False)
     _lock: object = field(default_factory=threading.Lock, repr=False)
+
+    @property
+    def labels(self) -> list[str]:
+        return [c.strip() for c in self.prompt.split(",") if c.strip()]
+
+    def _for_yolo(self) -> list[str]:
+        """The labels YOLO-World is asked for: with ``colour_first``, the colourless ones."""
+        if self.colour_only:
+            return []
+        return [lb for lb in self.labels if not (self.colour_first and colour_names(lb))]
+
+    def cheap(self) -> bool:
+        """True if a detect never runs YOLO-World: every label is found by its colour."""
+        return not self._for_yolo()
 
     def detect(self, bgr):
         with self._lock:               # one model, called from the view and the pick
             return self._detect(bgr)
 
+    def _by_colour(self, bgr, labels):
+        out = []
+        for label in labels:
+            box = colour_blob(bgr, label)
+            if box is not None:
+                x0, y0, x1, y1 = box
+                out.append(Detection((x0 + x1) / 2, (y0 + y1) / 2, box, label,
+                                     source="colour"))
+        return out
+
     def _detect(self, bgr):
+        # colour_first: a label naming a colour is its colour's blob or nothing
+        first = self._by_colour(bgr, [lb for lb in self.labels if colour_names(lb)]) \
+            if self.colour_first else []
+        if self.colour_first and self.cheap():
+            return first                                   # no label needs the model
         if self._detector is None and not self.colour_only:
             try:
                 from ultralytics import YOLOWorld  # pip install "rax[detect]"
@@ -253,28 +287,24 @@ class PromptTarget(Target):
             else:
                 self._detector = YOLOWorld(self.model_path)
                 # "red cube, green cube" is two classes; each detection keeps its own name
-                self._detector.set_classes([c.strip() for c in self.prompt.split(",")
-                                            if c.strip()])
+                self._detector.set_classes(self.labels)
+        done = set(self.labels) - set(self._for_yolo())    # left to the colour
         found = []
         for r in ([] if self.colour_only else
                   self._detector.predict(bgr, conf=self.min_confidence, verbose=False)):
             for box, c, conf in zip(r.boxes.xyxy.tolist(), r.boxes.cls.tolist(),
                                     r.boxes.conf.tolist()):
                 label = r.names[int(c)]
+                if label in done:
+                    continue                               # its colour already found it
                 if colour_fraction(bgr, box, label) >= self.min_colour:   # not an impostor
                     found.append((conf, label, tuple(box)))
-        out = []
+        out = list(first)
         for _conf, label, box in sorted(found, reverse=True):             # best first
             if all(d.label != label or box_iou(d.box, box) < self.nms_iou for d in out):
                 x0, y0, x1, y1 = box
                 out.append(Detection((x0 + x1) / 2, (y0 + y1) / 2, box, label))
         if self.colour_fallback:
-            for label in (c.strip() for c in self.prompt.split(",") if c.strip()):
-                if any(d.label == label for d in out):
-                    continue
-                box = colour_blob(bgr, label)
-                if box is not None:
-                    x0, y0, x1, y1 = box
-                    out.append(Detection((x0 + x1) / 2, (y0 + y1) / 2, box, label,
-                                         source="colour"))
+            out += self._by_colour(bgr, [lb for lb in self.labels if lb not in done
+                                         and not any(d.label == lb for d in out)])
         return out

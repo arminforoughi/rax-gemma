@@ -81,8 +81,10 @@ class PickApp(App):
 
     @staticmethod
     def make_target(prompt):
-        """YOLO-World finds it; OpenCV holds on to it when YOLO drops out for a moment."""
-        return StickyTarget(PromptTarget(prompt=prompt, grasp_z=0.02))
+        """YOLO-World finds it; OpenCV holds on to it when YOLO drops out for a moment.
+        RAX_GEMMA_DETECTOR=fast (a Pi): a named colour first, YOLO-World for the rest."""
+        fast = os.environ.get("RAX_GEMMA_DETECTOR") == "fast"
+        return StickyTarget(PromptTarget(prompt=prompt, grasp_z=0.02, colour_first=fast))
 
     # ---- detection runs on its own thread: the model is slower than the camera ------
     def detect_loop(self):
@@ -90,7 +92,10 @@ class PickApp(App):
         n, t_log = 0, 0.0
         while True:
             rgb = self.arm.rgb
-            if rgb is not None:
+            if self.rig.running and not self.target.cheap():
+                # a pick asks the same model every servo step: don't make it wait
+                self.dets = []
+            elif rgb is not None:
                 try:
                     t0 = time.time()
                     self.dets = self.target.detect(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
