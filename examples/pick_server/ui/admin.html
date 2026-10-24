@@ -161,6 +161,13 @@ a{color:var(--info)}
         title="One step per comma: '<object> on <destination>'. Both must be on the map.">
       <button id="t-run" onclick="runTask()">Run task</button>
     </div>
+    <div class="qrow" style="margin-top:6px">
+      <input id="gq" type="text" placeholder="ask Gemma: blue caps to the left rack, the rest right"
+        title="Gemma 4, on this machine, looks with the wrist camera, plans, and checks each place">
+      <button id="g-run" onclick="askGemma()" style="background:#6a4fb3;color:#fff">Ask Gemma</button>
+      <button id="g-look" class="dim" onclick="gemmaLook()" title="What Gemma sees now. The arm stays still.">Gemma look</button>
+    </div>
+    <div id="gsaid" style="color:#b9a7ec;font-size:13px;margin-top:4px;min-height:1.2em"></div>
   </div>
 </div>
 <div class="panel">
@@ -252,6 +259,17 @@ async function runTask(){
   finally{ b.disabled=false; b.textContent='Run task'; }
 }
 document.getElementById('task').addEventListener('keydown', e=>{ if(e.key==='Enter') runTask(); });
+async function askGemma(){
+  const q = document.getElementById('gq').value.trim();
+  if(!q) return;
+  const r = await (await fetch('/gemma?q='+encodeURIComponent(q),{method:'POST'})).json().catch(()=>({ok:false}));
+  if(r && r.ok === false) alert('gemma: '+(r.reason||r.error||'failed'));
+}
+async function gemmaLook(){
+  const r = await (await fetch('/gemma/look',{method:'POST'})).json().catch(()=>({ok:false}));
+  if(r && r.ok === false) alert('gemma: '+(r.reason||r.error||'failed'));
+}
+document.getElementById('gq').addEventListener('keydown', e=>{ if(e.key==='Enter') askGemma(); });
 (function(){
   // Show the room camera only once something is actually behind it, and attach the
   // stream at that moment rather than at load — pointing an <img> at a dead proxy
@@ -333,6 +351,7 @@ async function tick(){
     const ph = document.getElementById('phase');
     ph.textContent = s.phase; ph.className = 'phase' + (/ABORT|ERROR/.test(s.phase) ? ' bad':'');
     document.getElementById('detail').textContent = s.detail || '';
+    document.getElementById('gsaid').textContent = s.gemma ? 'Gemma: ' + s.gemma : '';
     const rows = [
       ['joints (deg)', (s.joints||[]).join('  ')],
       ['gripper %', s.gripper ?? '—'],

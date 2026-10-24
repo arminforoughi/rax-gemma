@@ -81,23 +81,15 @@ def run_request(arm, gemma, request: str, places: list[Place], detector: str = "
                 say=print, plan_only: bool = False, hint: str = "") -> Report:
     """Look, plan, then pick and place each step. Returns what happened."""
     rep = Report(request)
-    by_name = {p.name: p for p in places}
     arm.move(np.array(arm.home, float), speed=1.4, settle=0.3)
     bgr = _frame(arm)
 
     arm.phase("LOOK", "asking Gemma what is on the table")
-    rep.seen = look(gemma, bgr, hint)
-    if detector == "colour":                       # what the cap finder sees counts too
-        names = {i.name.lower() for i in rep.seen}
-        for d in ColourTarget(colours=("green", "blue", "red")).detect(bgr):
-            name = f"{d.label} tube"
-            if name not in names:
-                names.add(name)
-                rep.seen.append(Item(name, d.label, "seen by the colour detector"))
+    rep.seen = see(gemma, bgr, detector, hint)
     say(f"I see: {', '.join(i.name for i in rep.seen) or 'nothing'}  ({gemma.last_s:.1f}s)")
 
     arm.phase("PLAN", f"asking Gemma how to: {request}")
-    rep.plan = plan(gemma, request, rep.seen, list(by_name))
+    rep.plan = plan(gemma, request, rep.seen, [p.name for p in places])
     say(rep.plan.say or "(no answer)")
     for d in rep.plan.dropped:
         say(f"  skipping {d}")
@@ -105,8 +97,30 @@ def run_request(arm, gemma, request: str, places: list[Place], detector: str = "
         say(f"  {k}. {s.object} -> {s.to}")
     if plan_only:
         return rep
+    rep.outcomes = execute(arm, gemma, rep.plan.steps, places, detector, grasp, verify,
+                           retries, scan_kw, say, hint)
+    return rep
 
-    for s in rep.plan.steps:
+
+def see(gemma, bgr, detector: str = "prompt", hint: str = "") -> list[Item]:
+    """What Gemma sees in ``bgr``; with the colour detector, what the cap finder sees too."""
+    seen = look(gemma, bgr, hint)
+    if detector == "colour":
+        names = {i.name.lower() for i in seen}
+        for d in ColourTarget(colours=("green", "blue", "red")).detect(bgr):
+            name = f"{d.label} tube"
+            if name not in names:
+                names.add(name)
+                seen.append(Item(name, d.label, "seen by the colour detector"))
+    return seen
+
+
+def execute(arm, gemma, steps: list[Step], places: list[Place], detector: str = "prompt",
+            grasp: Grasp = TOP, verify: bool = True, retries: int = 1, scan_kw=None,
+            say=print, hint: str = "") -> list[Outcome]:
+    """Carry out ``steps``, then fold home. One Outcome per step."""
+    by_name, outcomes = {p.name: p for p in places}, []
+    for s in steps:
         arm.checkpoint()
         t0 = time.time()
         for attempt in range(retries + 1):
@@ -118,13 +132,12 @@ def run_request(arm, gemma, request: str, places: list[Place], detector: str = "
                 break
             if attempt < retries:
                 say(f"  {s.object}: {detail}; trying again")
-        rep.outcomes.append(Outcome(s, ok, detail, time.time() - t0))
+        outcomes.append(Outcome(s, ok, detail, time.time() - t0))
         say(f"  {'done' if ok else 'FAILED'}: {s.object} -> {s.to}: {detail}")
     arm.move(np.array(arm.home, float), speed=1.4, settle=0.2)
-    n_ok = sum(o.ok for o in rep.outcomes)
-    if rep.outcomes:
-        say(f"{n_ok} of {len(rep.outcomes)} done")
-    return rep
+    if outcomes:
+        say(f"{sum(o.ok for o in outcomes)} of {len(outcomes)} done")
+    return outcomes
 
 
 def _do_step(arm, gemma, s: Step, dest: Place, detector, grasp, verify, scan_kw, say,

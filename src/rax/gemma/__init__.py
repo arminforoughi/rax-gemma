@@ -12,8 +12,8 @@ Gemma looks and plans (:mod:`rax.gemma.brain`); RAX picks and places; Gemma chec
 from .brain import Item, Plan, Step, Verdict, check, look, plan
 from .client import Gemma, GemmaError
 from .litert import LiteRtGemma, open_gemma
-from .task import Outcome, Place, Report, run_request, target_for
+from .task import Outcome, Place, Report, execute, run_request, see, target_for
 
 __all__ = ["Gemma", "GemmaError", "LiteRtGemma", "open_gemma", "Item", "Plan", "Step",
            "Verdict", "look", "plan", "check", "Place", "Outcome", "Report", "run_request",
-           "target_for"]
+           "see", "execute", "target_for"]

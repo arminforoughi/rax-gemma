@@ -93,9 +93,11 @@ def plan_schema(places: list[str]) -> dict:
     }
 
 
-def plan(gemma, request: str, items: list[Item], places: list[str], bgr=None) -> Plan:
+def plan(gemma, request: str, items: list[Item], places: list[str], bgr=None,
+         history: str = "") -> Plan:
     """Steps that carry out ``request`` with the objects in ``items``.
 
+    ``history`` is the conversation so far ("it", "the other one"), as plain lines.
     ``places`` are where things may go. Every step's object is a name from ``items``
     (or close to one) so the detector can find it; every step's place is one of
     ``places``. ``bgr``, if given, is shown too, for requests about what things look
@@ -103,6 +105,7 @@ def plan(gemma, request: str, items: list[Item], places: list[str], bgr=None) ->
     """
     seen = "\n".join(f"- {i.name} ({i.where})" for i in items) or "- nothing"
     out = gemma.ask(
+        (f"Earlier in this conversation:\n{history}\n\n" if history else "") +
         f"The person says: \"{request}\"\n\n"
         f"Objects on the table:\n{seen}\n\n"
         f"Places things can go: {', '.join(places)}.\n\n"
