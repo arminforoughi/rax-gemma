@@ -233,6 +233,8 @@ class PromptTarget(Target):
     #: When the detector misses a label that names a colour ("red cube"), find the
     #: colour itself: open-vocabulary models score plain coloured blocks very low.
     colour_fallback: bool = True
+    #: True once YOLO-World turned out not to be installed (a Pi): colour labels only.
+    colour_only: bool = False
     _detector: object = field(default=None, repr=False)
     _lock: object = field(default_factory=threading.Lock, repr=False)
 
@@ -241,13 +243,21 @@ class PromptTarget(Target):
             return self._detect(bgr)
 
     def _detect(self, bgr):
-        if self._detector is None:
-            from ultralytics import YOLOWorld  # pip install "rax[detect]"
-            self._detector = YOLOWorld(self.model_path)
-            # "red cube, green cube" is two classes; each detection keeps its own name
-            self._detector.set_classes([c.strip() for c in self.prompt.split(",") if c.strip()])
+        if self._detector is None and not self.colour_only:
+            try:
+                from ultralytics import YOLOWorld  # pip install "rax[detect]"
+            except ModuleNotFoundError:
+                if not self.colour_fallback:
+                    raise
+                self.colour_only = True
+            else:
+                self._detector = YOLOWorld(self.model_path)
+                # "red cube, green cube" is two classes; each detection keeps its own name
+                self._detector.set_classes([c.strip() for c in self.prompt.split(",")
+                                            if c.strip()])
         found = []
-        for r in self._detector.predict(bgr, conf=self.min_confidence, verbose=False):
+        for r in ([] if self.colour_only else
+                  self._detector.predict(bgr, conf=self.min_confidence, verbose=False)):
             for box, c, conf in zip(r.boxes.xyxy.tolist(), r.boxes.cls.tolist(),
                                     r.boxes.conf.tolist()):
                 label = r.names[int(c)]
