@@ -95,6 +95,9 @@ class Gemma:
             return False
         return "capabilities" in tags or "modelfile" in tags
 
+    def why_not_ready(self) -> str:
+        return f"{self.model} is not pulled (or ollama is not running): ollama pull {self.model}"
+
     def ask(self, prompt: str, images=(), schema: dict | None = None,
             system: str | None = None):
         """Gemma's answer: a dict when ``schema`` is given, else the text."""

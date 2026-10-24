@@ -99,3 +99,23 @@ def test_an_object_not_on_the_table_is_not_retried():
                       say=lambda m: None)
     assert not rep.ok and "not on the table" in rep.outcomes[0].detail
     assert sum("Is there" in p for p in g.prompts) == 0
+
+
+# ---- the LiteRT-LM backend (the Pi): no model needed for these ----
+
+def test_first_json_takes_the_object_out_of_a_fenced_answer():
+    from rax.gemma.litert import first_json
+    assert first_json('Sure!\n```json\n{"yes": true, "why": "a {brace} in a string"}\n```') == \
+        {"yes": True, "why": "a {brace} in a string"}
+    with pytest.raises(GemmaError):
+        first_json("no json here")
+    with pytest.raises(GemmaError):
+        first_json('{"yes": true, "why": "cut')
+
+
+def test_open_gemma_picks_the_backend():
+    from rax.gemma import LiteRtGemma, open_gemma
+    g = open_gemma("litert", "/nonexistent/model.litertlm")
+    assert isinstance(g, LiteRtGemma) and not g.ready()
+    assert "model.litertlm" in g.why_not_ready() or "pip install" in g.why_not_ready()
+    assert isinstance(open_gemma("ollama", "gemma4:e4b"), Gemma)

@@ -1,9 +1,16 @@
-"""Tell the arm what to do. Gemma, on this laptop, looks, plans and checks; RAX picks.
+"""Tell the arm what to do. Gemma, on this machine, looks, plans and checks; RAX picks.
+
+On a laptop (Ollama, Gemma 4 E4B):
 
     ollama pull gemma4:e4b
     python examples/hackathon/gemma_lab.py --sim                 # no robot
     python examples/hackathon/gemma_lab.py --port /dev/tty.usbmodem...   # the SO-101
     python examples/hackathon/gemma_lab.py --sim --say "put the red tube in the left rack"
+
+On a Raspberry Pi 5 (LiteRT-LM, Gemma 4 E2B, everything on the one board; see
+examples/hackathon/PI.md):
+
+    python examples/hackathon/gemma_lab.py --pi --port /dev/ttyACM0
 
 Type a request at the prompt ("sort the tubes: red left, blue right", "what do you
 see?"). Other commands:
@@ -15,7 +22,7 @@ see?"). Other commands:
 
 Places come from --places (JSON: {"left rack": [x, y, release_z], ...}, metres in the
 arm's base frame) or the defaults below. --speak reads the answers out with macOS
-``say``, which is also on-device.
+``say`` or, on the Pi, ``espeak-ng``: both on-device.
 """
 
 from __future__ import annotations
@@ -27,7 +34,7 @@ import shutil
 import subprocess
 import sys
 
-from rax.gemma import Gemma, GemmaError, Place, look, plan, run_request
+from rax.gemma import GemmaError, Place, look, open_gemma, plan, run_request
 
 #: Two drop spots on either side of the SO-101, in reach at a high release.
 DEFAULT_PLACES = {"left rack": (0.20, 0.15, 0.10), "right rack": (0.20, -0.15, 0.10)}
@@ -74,8 +81,15 @@ def main():
     ap.add_argument("--sim", action="store_true", help="the simulated SO-101")
     ap.add_argument("--port", help="the SO-101's serial port")
     ap.add_argument("--handeye", help="hand-eye calibration JSON for the real arm")
-    ap.add_argument("--model", default=os.environ.get("RAX_GEMMA", "gemma4:e4b"))
+    ap.add_argument("--pi", action="store_true",
+                    help="Raspberry Pi preset: --backend litert, the colour detector")
+    ap.add_argument("--backend", choices=("ollama", "litert"),
+                    help="ollama (a laptop, default) or litert (LiteRT-LM in this process)")
+    ap.add_argument("--model", default=os.environ.get("RAX_GEMMA"),
+                    help="ollama tag (gemma4:e4b) or .litertlm path "
+                         "(~/models/gemma-4-E2B-it.litertlm)")
     ap.add_argument("--host", default="http://127.0.0.1:11434")
+    ap.add_argument("--litert-backend", default="cpu", choices=("cpu", "gpu", "npu"))
     ap.add_argument("--places", help="JSON of named places")
     ap.add_argument("--detector", choices=("prompt", "colour"),
                     help="how the arm finds what Gemma named (default: colour in --sim)")
@@ -86,10 +100,13 @@ def main():
     args = ap.parse_args()
     if not args.sim and not args.port:
         ap.error("--sim or --port")
-    detector = args.detector or ("colour" if args.sim else "prompt")
+    backend = args.backend or ("litert" if args.pi else "ollama")
+    # YOLO-World is slow on the Pi's CPU; the cap colours need no model at all
+    detector = args.detector or ("colour" if args.sim or args.pi else "prompt")
     hint = args.hint if args.hint is not None else (SIM_HINT if args.sim else "")
 
-    talk = shutil.which("say") if args.speak else None
+    talk = (shutil.which("say") or shutil.which("espeak-ng") or shutil.which("espeak")) \
+        if args.speak else None
 
     def say(msg):
         print(msg, flush=True)
@@ -97,16 +114,18 @@ def main():
             subprocess.run([talk, msg])
 
     try:
-        gemma = Gemma(args.model, args.host)
+        gemma = (open_gemma("litert", args.model, backend=args.litert_backend)
+                 if backend == "litert" else open_gemma("ollama", args.model, host=args.host))
     except GemmaError as e:
         sys.exit(str(e))
     if not gemma.ready():
-        sys.exit(f"{args.model} is not pulled: ollama pull {args.model}")
-    print(f"loading {args.model}...", flush=True)
+        sys.exit(gemma.why_not_ready())
+    print(f"loading {gemma.model} ({backend})...", flush=True)
     print(f"  ready in {gemma.warm():.0f}s")
     places = load_places(args.places, args.sim)
     arm = make_arm(args)
-    print(f"{args.model} on {args.host}; places: {', '.join(p.name for p in places)}")
+    print(f"{gemma.model} ({backend}); detector: {detector}; "
+          f"places: {', '.join(p.name for p in places)}")
 
     def do(req):
         try:
